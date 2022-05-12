@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <script src="stt.js"></script>
+    <script type="text/javascript">
+
+        const MAX_DM_COUNT = 10
+        const CHANNEL_COUNT = 10
+
+        const domPool = []
+        const danmuPool = []
+        const hasPosition = []
+
+        const roomid = 293829
+
+        function init() {
+            let panel = document.getElementById('panel')
+            console.log(panel)
+            for (let i = 0;i < CHANNEL_COUNT;i ++){
+                let doms = []
+                for (let j = 0;j <  MAX_DM_COUNT;j ++){
+                    let dom = document.createElement('span')
+                    panel.appendChild(dom)
+                    dom.className = 'right'
+                    dom.style.top = i * 30 + 'px'
+                    doms.push(dom)
+                    dom.addEventListener('transitionend', () => {
+                        dom.className = 'right'
+                        dom.style.transform = null
+                        domPool[i].push(dom)
+                    })
+                }
+                domPool.push(doms)
+            }
+            for(let i = 0;i < CHANNEL_COUNT;i ++){
+                hasPosition[i] = true
+            }
+        }
+
+        function getChannel() {
+            for(let i = 0;i < CHANNEL_COUNT;i ++){
+                if(hasPosition[i] && domPool[i].length) return i;
+            }
+            return -1;
+        }
+
+        function displayDanmu(dom, text, channel) {
+            console.log("biu---->" + text)
+            dom.innerText = text
+            dom.style.transform = `translateX(${-dom.clientWidth}px)`
+            dom.className = 'left'
+            hasPosition[channel] = false
+            setTimeout(() => {
+                hasPosition[channel] = true
+            }, dom.clientWidth * 10 + 1000)
+        }
+
+        function msg_encode(msg){
+            msg += '\0'
+            const encoder = new TextEncoder()
+            const body = encoder.encode(msg)
+            const messageLength = body.length + 8
+            const r = new DataView(new ArrayBuffer(body.length + 12))
+            r.setUint32(0, messageLength, true)
+            r.setUint32(4, messageLength, true)
+            r.setInt16(8, 689, true)
+            r.setInt16(10, 0, true)
+            return new Uint8Array(r.buffer).set(body, 12), r.buffer
+        }
+
+        function msg_decode(data){
+            let reader = new FileReader()
+            reader.onload = () => {
+                let arr = String(reader.result).split("\0")
+                reader = null
+                for (let i = 0;i < arr.length;i ++){
+                    if(arr[i].length > 12){
+                        let content = STT.deserialize(arr[i])
+                        if('chatmsg' === content.type){
+                            danmuPool.push(content.txt)
+                        }
+                    }
+                }
+            };
+            reader.readAsText(data.data)
+        }
+
+        function login(ws){
+            let login_url = 'type@=loginreq/roomid@='+ roomid +'/dfl@=sn/username@=245618230/uid@=245618230/ver@=20190610/aver@=218101901/ct@=0/'
+            ws.send(msg_encode(login_url))
+        }
+
+        function join_room(ws){
+            let join_url = 'type@=joingroup/rid@=' + roomid + '/gid@=-9999/'
+            ws.send(msg_encode(join_url))
+        }
+
+        function heart_beat(ws){
+            setInterval(() => {
+                ws.send(msg_encode('type@=mrkl/'))
+                console.log('发送心跳')
+            }, 30000)
+        }
+
+        window.onload = function() {
+            let ws = new WebSocket('wss://danmuproxy.douyu.com:8501/')
+
+            init()
+
+            setInterval(() => {
+                let channel;
+                if(danmuPool.length && (channel = getChannel()) !== -1){
+                    let dom = domPool[channel].shift()
+                    let danmu = danmuPool.shift()
+                    displayDanmu(dom, danmu, channel)
+                }
+            })
+
+            ws.onopen = () => {
+                login(ws)
+                join_room(ws)
+                heart_beat(ws)
+            }
+
+            ws.onmessage = (buf) => {
+                msg_decode(buf)
+            }
+
+            ws.onclose = (e) => {
+                console.log(e)
+                console.log('close')
+            }
+        }
+
+
+    </script>
+
+    <style>
+        #panel{
+            height: 100vh;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+            color: #ffffff82;
+            font-size: 14px;
+            text-shadow: 1px 1px #000;
+        }
+
+        .right{
+            position: absolute;
+            visibility: hidden;
+            white-space: nowrap;
+            font-size: x-large;
+            font-weight: bold;
+            transform: translateX(100vw);
+            color: #868686;
+        }
+
+        .left{
+            position: absolute;
+            white-space: nowrap;
+            user-select: none;
+            font-size: x-large;
+            font-weight: bold;
+            transition: transform 10s linear; /* 时间相同 越长的弹幕滑动距离越长 所以越快~ */
+            color: #868686;
+        }
+    </style>
+</head>
+<body>
+    <div id="panel">
+    </div>
+</body>
+</html>
